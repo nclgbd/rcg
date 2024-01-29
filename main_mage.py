@@ -1,10 +1,12 @@
+#!/usr/bin/env python
+
+from omegaconf import OmegaConf
 import argparse
 import datetime
 import json
 import numpy as np
 import os
 import time
-import OmegaConf
 from pathlib import Path
 
 
@@ -17,28 +19,30 @@ import torchvision.datasets as datasets
 # timm
 import timm
 
-assert timm.__version__ == "0.3.2"  # version check
+# assert timm.__version__ == "0.3.2"  # version check
 import timm.optim.optim_factory as optim_factory
-
-import util.misc as misc
-from util.misc import NativeScalerWithGradNormCount as NativeScaler
-
-import pixel_generator.mage.models_mage as models_mage
-
-from engine_mage import train_one_epoch, gen_img
 
 # mlflow
 import mlflow
 
+# rcg
+import pixel_generator.mage.models_mage as models_mage
+import util.misc as misc
+from engine_mage import train_one_epoch, gen_img
+from util.misc import NativeScalerWithGradNormCount as NativeScaler
+
 # rtk
+from rtk._datasets import create_transforms
+from rtk.config import *
 from rtk.datasets import prepare_data
+from rtk.mlflow import *
 
 
 def get_args_parser():
     parser = argparse.ArgumentParser("MAGE training", add_help=False)
     parser.add_argument(
         "--batch_size",
-        default=12,
+        default=8,
         type=int,
         help="Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus",
     )
@@ -62,7 +66,9 @@ def get_args_parser():
     parser.add_argument("--input_size", default=256, type=int, help="images input size")
 
     parser.add_argument(
-        "--vqgan_ckpt_path", default="vqgan_jax_strongaug.ckpt", type=str
+        "--vqgan_ckpt_path",
+        default="pretrained_enc_ckpts/vqgan_jax_strongaug.ckpt",
+        type=str,
     )
 
     # Pre-trained enc parameters
@@ -73,8 +79,12 @@ def get_args_parser():
         "--use_class_label", action="store_true", help="use class label as condition."
     )
     parser.add_argument("--rep_dim", default=256, type=int)
-    parser.add_argument("--pretrained_enc_arch", default=None, type=str)
-    parser.add_argument("--pretrained_enc_path", default=None, type=str)
+    parser.add_argument("--pretrained_enc_arch", default="mocov3_vit_large", type=str)
+    parser.add_argument(
+        "--pretrained_enc_path",
+        default="pretrained_enc_ckpts/mocov3/vitl.pth.tar",
+        type=str,
+    )
     parser.add_argument("--pretrained_enc_proj_dim", default=256, type=int)
     parser.add_argument("--pretrained_enc_withproj", action="store_true")
 
@@ -91,12 +101,12 @@ def get_args_parser():
     parser.add_argument(
         "--eval_freq", type=int, default=40, help="evaluation frequency"
     )
-    parser.add_argument("--temp", default=6.0, type=float, help="sampling temperature")
+    parser.add_argument("--temp", default=11.0, type=float, help="sampling temperature")
     parser.add_argument(
         "--num_iter", default=16, type=int, help="number of iterations for generation"
     )
     parser.add_argument(
-        "--num_images", default=50000, type=int, help="number of images to generate"
+        "--num_images", default=3500, type=int, help="number of images to generate"
     )
     parser.add_argument("--cfg", default=0.0, type=float)
     parser.add_argument("--rep_drop_prob", default=0.0, type=float)
@@ -157,11 +167,11 @@ def get_args_parser():
 
     parser.add_argument(
         "--output_dir",
-        default="./output_dir",
+        default="./outputs",
         help="path where to save, empty for no saving",
     )
     parser.add_argument(
-        "--device", default="cuda", help="device to use for training / testing"
+        "--device", default=1, help="device to use for training / testing"
     )
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--resume", default="", help="resume from checkpoint")
@@ -169,7 +179,7 @@ def get_args_parser():
     parser.add_argument(
         "--start_epoch", default=0, type=int, metavar="N", help="start epoch"
     )
-    parser.add_argument("--num_workers", default=10, type=int)
+    parser.add_argument("--num_workers", default=24, type=int)
     parser.add_argument(
         "--pin_mem",
         action="store_true",
@@ -187,16 +197,30 @@ def get_args_parser():
     parser.add_argument(
         "--dist_url", default="env://", help="url used to set up distributed training"
     )
+    # rtk parameters
     parser.add_argument(
         "--rtk_config_dir",
         default="/home/nicoleg/workspaces/dissertation/configs",
+        type=str,
+    )
+    parser.add_argument(
+        "--rtk_config_name",
+        default="chest-xray14-diffusion",
         type=str,
     )
 
     return parser
 
 
-def run_loop(args):
+def run_loop(
+    args,
+    model: torch.nn.Module,
+    model_without_ddp: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    loss_scaler,
+    device: torch.device,
+    data_loader_train: torch.utils.data.DataLoader,
+):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
@@ -207,7 +231,7 @@ def run_loop(args):
             device,
             epoch,
             loss_scaler,
-            log_writer=log_writer,
+            # log_writer=log_writer,
             args=args,
         )
         if args.output_dir and (epoch % 40 == 0 or epoch + 1 == args.epochs):
@@ -223,14 +247,14 @@ def run_loop(args):
             epoch % args.eval_freq == 0 or epoch + 1 == args.epochs
         ):
             if args.pretrained_rdm_ckpt is not None or args.use_class_label:
-                gen_img(model, args, epoch, batch_size=16, log_writer=log_writer, cfg=0)
+                gen_img(model, args, epoch, batch_size=16, cfg=0)
                 if args.cfg > 0:
                     gen_img(
                         model,
                         args,
                         epoch,
                         batch_size=16,
-                        log_writer=log_writer,
+                        # log_writer=log_writer,
                         cfg=args.cfg,
                     )
 
@@ -259,7 +283,14 @@ def run_loop(args):
 
 
 def main(args):
-    cfg = OmegaConf.load()
+    config_dir = args.rtk_config_dir
+    config_name = args.rtk_config_name
+    cfg: Configuration = set_hydra_configuration(
+        config_name,
+        ConfigurationInstance=Configuration,
+        init_method_kwargs={"config_dir": config_dir},
+    )
+
     misc.init_distributed_mode(args)
 
     print("job dir: {}".format(os.path.dirname(os.path.realpath(__file__))))
@@ -268,7 +299,8 @@ def main(args):
     device = torch.device(args.device)
 
     # fix the seed for reproducibility
-    seed = args.seed + misc.get_rank()
+    random_state = cfg.job["random_state"]
+    seed = random_state
     torch.manual_seed(seed)
     np.random.seed(seed)
 
@@ -278,59 +310,66 @@ def main(args):
     global_rank = misc.get_rank()
 
     # init log writer
-    if global_rank == 0 and args.log_dir is not None:
-        os.makedirs(args.log_dir, exist_ok=True)
-        log_writer = SummaryWriter(log_dir=args.log_dir)
-    else:
-        log_writer = None
+    # if global_rank == 0 and args.log_dir is not None:
+    #     os.makedirs(args.log_dir, exist_ok=True)
+    # else:
+    #     log_writer = None
 
     # simple augmentation
-    if args.augmentation == "noaug":
-        transform_train = transforms.Compose(
-            [
-                transforms.Resize(292, interpolation=3),
-                transforms.CenterCrop(args.input_size),
-                transforms.ToTensor(),
-            ]
-        )
-    elif args.augmentation == "randcrop":
-        transform_train = transforms.Compose(
-            [
-                transforms.Resize(256, interpolation=3),
-                transforms.RandomCrop(256),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-            ]
-        )
-    elif args.augmentation == "randresizedcrop":
-        transform_train = transforms.Compose(
-            [
-                transforms.RandomResizedCrop(args.input_size, scale=(0.8, 1.0)),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-            ]
-        )
-    else:
-        raise NotImplementedError
+    # if args.augmentation == "noaug":
+    #     transform_train = transforms.Compose(
+    #         [
+    #             transforms.Resize(292, interpolation=3),
+    #             transforms.CenterCrop(args.input_size),
+    #             transforms.ToTensor(),
+    #         ]
+    #     )
+    # elif args.augmentation == "randcrop":
+    #     transform_train = transforms.Compose(
+    #         [
+    #             transforms.Resize(256, interpolation=3),
+    #             transforms.RandomCrop(256),
+    #             transforms.RandomHorizontalFlip(),
+    #             transforms.ToTensor(),
+    #         ]
+    #     )
+    # elif args.augmentation == "randresizedcrop":
+    #     transform_train = transforms.Compose(
+    #         [
+    #             transforms.RandomResizedCrop(args.input_size, scale=(0.8, 1.0)),
+    #             transforms.RandomHorizontalFlip(),
+    #             transforms.ToTensor(),
+    #         ]
+    #     )
+    # else:
+    #     raise NotImplementedError
 
-    dataset_train = datasets.ImageFolder(
-        os.path.join(args.data_path, "train"), transform=transform_train
+    # dataset_train = datasets.ImageFolder(
+    #     os.path.join(args.data_path, "train"), transform=transform_train
+    # )
+    split_datasets = prepare_data(
+        cfg=cfg,
     )
-    print(dataset_train)
 
-    sampler_train = torch.utils.data.DistributedSampler(
-        dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
-    )
-    print("Sampler_train = %s" % str(sampler_train))
+    # transform_train = create_transforms(cfg, use_transforms=cfg.job.use_transforms)
+    # transform_test = create_transforms(cfg, use_transforms=False)
+    data_loader_train = split_datasets[0]
+    # dataset_train.transform = transform_train
+    data_loader_test = split_datasets[-1]
 
-    data_loader_train = torch.utils.data.DataLoader(
-        dataset_train,
-        sampler=sampler_train,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        pin_memory=args.pin_mem,
-        drop_last=True,
-    )
+    # sampler_train = torch.utils.data.DistributedSampler(
+    #     dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+    # )
+    # print("Sampler_train = %s" % str(sampler_train))
+
+    # data_loader_train = torch.utils.data.DataLoader(
+    #     dataset_train,
+    #     sampler=sampler_train,
+    #     batch_size=args.batch_size,
+    #     num_workers=args.num_workers,
+    #     pin_memory=args.pin_mem,
+    #     drop_last=True,
+    # )
 
     # define the model
 
@@ -377,8 +416,8 @@ def main(args):
     # Log parameters
     n_params = sum(p.numel() for p in model_without_ddp.parameters() if p.requires_grad)
     print("Number of trainable parameters: {}M".format(n_params / 1e6))
-    if global_rank == 0:
-        log_writer.add_scalar("num_params", n_params / 1e6, 0)
+    # if global_rank == 0:
+    #     log_writer.add_scalar("num_params", n_params / 1e6, 0)
 
     # following timm: set wd as 0 for bias and norm layers
     param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
@@ -393,12 +432,12 @@ def main(args):
         loss_scaler=loss_scaler,
     )
 
-    if args.evaluate:
-        print("Start evaluating")
-        gen_img(model, args, 0, batch_size=16, log_writer=log_writer, cfg=0)
-        if args.cfg > 0:
-            gen_img(model, args, 0, batch_size=16, log_writer=log_writer, cfg=args.cfg)
-        return
+    # if args.evaluate:
+    #     print("Start evaluating")
+    #     gen_img(model, args, 0, batch_size=16, log_writer=log_writer, cfg=0)
+    #     if args.cfg > 0:
+    #         gen_img(model, args, 0, batch_size=16, log_writer=log_writer, cfg=args.cfg)
+    #     return
 
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
@@ -415,10 +454,26 @@ def main(args):
                     mlflow_run.info.run_id, mlflow_run.info.status
                 )
             )
-            run_loop()
+            run_loop(
+                args,
+                model,
+                model_without_ddp,
+                optimizer,
+                loss_scaler,
+                device=device,
+                data_loader_train=data_loader_train,
+            )
 
     else:
-        run_loop()
+        run_loop(
+            args,
+            model,
+            model_without_ddp,
+            optimizer,
+            loss_scaler,
+            device=device,
+            data_loader_train=data_loader_train,
+        )
         pass
 
     total_time = time.time() - start_time
