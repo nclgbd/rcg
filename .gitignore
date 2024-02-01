@@ -12,5 +12,8 @@ final_ckpts/
 # these are links
 cache
 pretrained_enc_ckpts
-vqgan_jax_weakaug.ckpt
+pretrained_enc_ckpts/vqgan_jax_weakaug.ckpt
 imagenet-val
+
+# nclgbd
+config.json
