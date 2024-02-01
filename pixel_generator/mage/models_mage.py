@@ -19,10 +19,9 @@ from rdm.util import load_model
 
 def mask_by_random_topk(mask_len, probs, temperature=1.0):
     mask_len = mask_len.squeeze()
-    confidence = (
-        torch.log(probs)
-        + torch.Tensor(temperature * np.random.gumbel(size=probs.shape)).cuda()
-    )
+    confidence = torch.log(probs) + torch.Tensor(
+        temperature * np.random.gumbel(size=probs.shape)
+    ).cuda(device=mask_len.device)
     sorted_confidence, _ = torch.sort(confidence, axis=-1)
     # Obtains cut off threshold given the mask lengths.
     cut_off = sorted_confidence[:, mask_len.long() - 1 : mask_len.long()]
@@ -218,7 +217,7 @@ class MaskedGenerativeEncoderViT(nn.Module):
         mask_ratio_max=1.0,
         mask_ratio_mu=0.55,
         mask_ratio_std=0.25,
-        vqgan_ckpt_path="vqgan_jax_strongaug.ckpt",
+        vqgan_ckpt_path="pretrained_enc_ckpts/vqgan_jax_strongaug.ckpt",
         use_rep=True,
         rep_dim=256,
         rep_drop_prob=0.0,
@@ -489,19 +488,25 @@ class MaskedGenerativeEncoderViT(nn.Module):
         # print("Masekd num token:", torch.sum(token_indices == self.mask_token_label, dim=1))
 
         # concate class token
+        device = token_indices.device
         token_indices = torch.cat(
             [
-                torch.zeros(token_indices.size(0), 1).cuda(device=token_indices.device),
+                torch.zeros(token_indices.size(0), 1).cuda(device=device),
                 token_indices,
             ],
             dim=1,
         )
         token_indices[:, 0] = self.fake_class_label
         token_drop_mask = torch.cat(
-            [torch.zeros(token_indices.size(0), 1).cuda(), token_drop_mask], dim=1
+            [
+                torch.zeros(token_indices.size(0), 1).cuda(device=device),
+                token_drop_mask,
+            ],
+            dim=1,
         )
         token_all_mask = torch.cat(
-            [torch.zeros(token_indices.size(0), 1).cuda(), token_all_mask], dim=1
+            [torch.zeros(token_indices.size(0), 1).cuda(device=device), token_all_mask],
+            dim=1,
         )
         token_indices = token_indices.long()
         # bert embedding
@@ -520,7 +525,7 @@ class MaskedGenerativeEncoderViT(nn.Module):
         if self.use_rep:
             # cfg by masking representation
             drop_rep_mask = torch.rand(bsz) < self.rep_drop_prob
-            drop_rep_mask = drop_rep_mask.unsqueeze(-1).cuda().float()
+            drop_rep_mask = drop_rep_mask.unsqueeze(-1).cuda(device=device).float()
             rep = drop_rep_mask * self.fake_latent + (1 - drop_rep_mask) * rep
 
             rep = self.latent_prior_proj(rep)
@@ -621,17 +626,18 @@ class MaskedGenerativeEncoderViT(nn.Module):
             )
 
         self.pretrained_encoder.eval()
+        device = imgs.device
         with torch.no_grad():
             mean = (
                 torch.Tensor([0.485, 0.456, 0.406])
-                .cuda()
+                .to(device)
                 .unsqueeze(0)
                 .unsqueeze(-1)
                 .unsqueeze(-1)
             )
             std = (
                 torch.Tensor([0.229, 0.224, 0.225])
-                .cuda()
+                .to(device)
                 .unsqueeze(0)
                 .unsqueeze(-1)
                 .unsqueeze(-1)
@@ -673,7 +679,8 @@ class MaskedGenerativeEncoderViT(nn.Module):
             bsz, unknown_number_in_the_beginning
         )
 
-        token_indices = initial_token_indices.cuda()
+        device = initial_token_indices.device
+        token_indices = initial_token_indices.cuda(device=device)
 
         # Sample representation from RDM
         if self.use_rep and sampled_rep is None:
@@ -687,7 +694,8 @@ class MaskedGenerativeEncoderViT(nn.Module):
                     cond = {"class_label": class_label}
                 else:
                     class_label = (
-                        self.rdm_fake_class_label * torch.ones(bsz).cuda().long()
+                        self.rdm_fake_class_label
+                        * torch.ones(bsz).cuda(device=device).long()
                     )
                     cond = {"class_label": class_label}
                 cond = self.rdm_sampler.model.get_learned_conditioning(cond)
@@ -711,7 +719,7 @@ class MaskedGenerativeEncoderViT(nn.Module):
 
         if self.use_class_label:
             assert cfg == 0
-            class_label = torch.randint(0, 1000, (bsz,)).cuda()
+            class_label = torch.randint(0, 1000, (bsz,)).cuda(device=device)
 
         # Parallel decoding of MAGE
         for step in range(num_iter):
@@ -723,9 +731,7 @@ class MaskedGenerativeEncoderViT(nn.Module):
 
             token_indices = torch.cat(
                 [
-                    torch.zeros(token_indices.size(0), 1).cuda(
-                        device=token_indices.device
-                    ),
+                    torch.zeros(token_indices.size(0), 1).cuda(device=device),
                     token_indices,
                 ],
                 dim=1,
@@ -791,7 +797,7 @@ class MaskedGenerativeEncoderViT(nn.Module):
             # Keeps at least one of prediction in this round and also masks out at least
             # one and for the next iteration
             mask_len = torch.maximum(
-                torch.Tensor([1]).cuda(),
+                torch.Tensor([1]).cuda(token_indices.device),
                 torch.minimum(
                     torch.sum(unknown_map, dim=-1, keepdims=True) - 1, mask_len
                 ),

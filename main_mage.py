@@ -171,7 +171,7 @@ def get_args_parser():
         help="path where to save, empty for no saving",
     )
     parser.add_argument(
-        "--device", default=1, help="device to use for training / testing"
+        "--device", default=2, help="device to use for training / testing"
     )
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--resume", default="", help="resume from checkpoint")
@@ -292,11 +292,13 @@ def main(args):
     )
 
     misc.init_distributed_mode(args)
+    args.input_size = cfg.datasets.dim
 
     print("job dir: {}".format(os.path.dirname(os.path.realpath(__file__))))
     print("{}".format(args).replace(", ", ",\n"))
 
-    device = torch.device(args.device)
+    _device = args.device if cfg.job.device is None else cfg.job.device
+    device = torch.device(_device)
 
     # fix the seed for reproducibility
     random_state = cfg.job["random_state"]
@@ -420,7 +422,9 @@ def main(args):
     #     log_writer.add_scalar("num_params", n_params / 1e6, 0)
 
     # following timm: set wd as 0 for bias and norm layers
-    param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
+    param_groups = optim_factory.param_groups_weight_decay(
+        model_without_ddp, args.weight_decay
+    )
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
     print(optimizer)
     loss_scaler = NativeScaler()

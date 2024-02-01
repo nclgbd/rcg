@@ -23,6 +23,7 @@ def train_one_epoch(
     log_writer=None,
     args=None,
 ):
+    model.to(device)
     model.train(True)
     metric_logger = misc.MetricLogger(delimiter="  ")
     metric_logger.add_meter("lr", misc.SmoothedValue(window_size=1, fmt="{value:.6f}"))
@@ -45,8 +46,9 @@ def train_one_epoch(
                 optimizer, data_iter_step / len(data_loader) + epoch, args
             )
 
-        samples = samples.to(device, non_blocking=True)
+        samples = samples.to(device)
         with torch.cuda.amp.autocast():
+            # with torch.autocast(device_type="cuda"):
             loss, _, _ = model(samples, class_label)
 
         loss_value = loss.item()
