@@ -1,9 +1,16 @@
+import os
+
+# torch
 import torch
 import torch.nn as nn
-import pretrained_enc.moco_v3.vits as moco_vits
+
+# rcg
+import pretrained_enc.deit.vits as deit_vits
 import pretrained_enc.dino.vits as dino_vits
 import pretrained_enc.ibot.vits as ibot_vits
-import pretrained_enc.deit.vits as deit_vits
+import pretrained_enc.moco_v3.vits as moco_vits
+
+_PRETRAINED_MODEL_DIR = "/home/nicoleg/workspaces/rcg/"
 
 
 def build_mlp(num_layers, input_dim, mlp_dim, output_dim, last_bn=True):
@@ -24,16 +31,19 @@ def build_mlp(num_layers, input_dim, mlp_dim, output_dim, last_bn=True):
 
     return nn.Sequential(*mlp)
 
+
 def load_pretrained_moco(model, ckpt_path):
-    checkpoint = torch.load(ckpt_path, map_location="cpu")
+    checkpoint = torch.load(
+        os.path.join(_PRETRAINED_MODEL_DIR, ckpt_path), map_location="cpu"
+    )
 
     # rename moco pre-trained keys
-    state_dict = checkpoint['state_dict']
+    state_dict = checkpoint["state_dict"]
     for k in list(state_dict.keys()):
         # retain only base_encoder up to before the embedding layer
-        if k.startswith('module.base_encoder'):
+        if k.startswith("module.base_encoder"):
             # fix naming bug in checkpoint
-            new_k = k[len("module.base_encoder."):]
+            new_k = k[len("module.base_encoder.") :]
             if "blocks.13.norm13" in new_k:
                 new_k = new_k.replace("norm13", "norm1")
             if "blocks.13.mlp.fc13" in k:
@@ -54,16 +64,16 @@ def load_pretrained_moco(model, ckpt_path):
 def load_pretrained_dino(model, ckpt_path):
     checkpoint = torch.load(ckpt_path, map_location="cpu")
     # rename dino pre-trained keys
-    state_dict = checkpoint['teacher']
+    state_dict = checkpoint["teacher"]
     for k in list(state_dict.keys()):
         # retain only base_encoder up to before the embedding layer
-        if k.startswith('backbone'):
+        if k.startswith("backbone"):
             # remove prefix
-            state_dict[k[len("backbone."):]] = state_dict[k]
+            state_dict[k[len("backbone.") :]] = state_dict[k]
             # delete renamed or unused k
             del state_dict[k]
 
-    del state_dict['head.last_layer.weight']
+    del state_dict["head.last_layer.weight"]
     model.load_state_dict(state_dict, strict=True)
     return model
 
@@ -71,19 +81,19 @@ def load_pretrained_dino(model, ckpt_path):
 def load_pretrained_ibot(model, ckpt_path):
     checkpoint = torch.load(ckpt_path, map_location="cpu")
     # rename ibot pre-trained keys
-    state_dict = checkpoint['teacher']
+    state_dict = checkpoint["teacher"]
     for k in list(state_dict.keys()):
         # retain only base_encoder up to before the embedding layer
-        if k.startswith('backbone'):
+        if k.startswith("backbone"):
             # remove prefix
-            state_dict[k[len("backbone."):]] = state_dict[k]
+            state_dict[k[len("backbone.") :]] = state_dict[k]
             # delete renamed or unused k
             del state_dict[k]
 
-    del state_dict['head.last_layer.weight_g']
-    del state_dict['head.last_layer.weight_v']
-    del state_dict['head.last_layer2.weight_g']
-    del state_dict['head.last_layer2.weight_v']
+    del state_dict["head.last_layer.weight_g"]
+    del state_dict["head.last_layer.weight_v"]
+    del state_dict["head.last_layer2.weight_g"]
+    del state_dict["head.last_layer2.weight_v"]
     model.load_state_dict(state_dict, strict=True)
     return model
 
@@ -91,7 +101,7 @@ def load_pretrained_ibot(model, ckpt_path):
 def load_pretrained_deit(model, ckpt_path):
     checkpoint = torch.load(ckpt_path, map_location="cpu")
     # load pre-trained model
-    model.load_state_dict(checkpoint['model'])
+    model.load_state_dict(checkpoint["model"])
 
     return model
 

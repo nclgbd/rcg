@@ -1,0 +1,11 @@
+# transforms: rcg-defaults
+
+load:
+  - _target_: torchvision.transforms.Resize
+    size: ${datasets.dim}
+    interpolation: 3
+
+train:
+  - _target_: torchvision.transforms.RandomCrop
+    size: ${datasets.dim}
+  - _target_: torchvision.transforms.RandomHorizontalFlip

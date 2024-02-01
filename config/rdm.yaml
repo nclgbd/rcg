@@ -1,0 +1,77 @@
+# * python main_rdm.py config-dir=$(pwd)/config/ config-name=rdm
+
+defaults:
+  - _self_
+  - datasets: chest-xray14-dataset
+  # overrides:
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+
+job:
+  mode: diffusion
+  use_transforms: true
+
+# seed for reproducibility
+seed: 42
+# Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus
+batch_size: 64
+# Number of epochs to train
+epochs: 400
+# Accumulate gradient iterations (for increasing the effective batch size under memory constraints)
+accum_iter: 1
+# Images input size
+input_size: 256
+# Config file
+config: "/home/nicoleg/workspaces/rcg/config/rdm/mocov3vitb_simplemlp_l12_w1536_classcond.yaml"
+#
+weight_decay: 0.05
+# Learning rate
+lr: null
+# blr
+blr: 0.0001
+# min_lr
+min_lr: 0.0
+# cosine_lr
+cosine_lr: true
+# warmup_epochs
+warmup_epochs: 0
+# output_dir
+output_dir: outputs
+# log directory
+log_dir: logs
+# device
+device: 0
+# Resume from checkpoint
+resume: ""
+# The starting epoch
+start_epoch: 0
+# The number of workers for the dataloader
+num_workers: 24
+# Whether to use pin_memory
+pin_mem: true
+# Distributed training
+distributed: false
+# The number of distributed processes
+world_size: 1
+# The rank of the current process
+local_rank: -1
+#
+dist_on_itp: false
+# url used to set up distributed training
+dist_url: "env://"
+
+date: ${now:%Y-%m-%d}
+postfix: "DIFFUSION"
+timestamp: ${now:%H-%M-%S}
+
+hydra:
+  job:
+    chdir: true
+  searchpath:
+    - file:///home/nicoleg/workspaces/ResearchToolKit/configs
+    - file:///home/nicoleg/workspaces/dissertation/configs
+  sweep:
+    dir: outputs/${hydra.job.config_name}/${date}/${timestamp}
+    subdir: ${hydra.job.override_dirname}
+  run:
+    dir: outputs/${hydra.job.config_name}/${date}/${timestamp}
