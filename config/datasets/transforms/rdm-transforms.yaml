@@ -1,0 +1,13 @@
+# transforms: rdm-transforms
+
+load:
+  - _target_: monai.transforms.EnsureChannelFirst
+  - _target_: monai.transforms.Resize
+    spatial_size:
+      - ${datasets.dim}
+      - ${datasets.dim}
+
+train:
+  - _target_: torchvision.transforms.RandomCrop
+    size: ${datasets.dim}
+  - _target_: torchvision.transforms.RandomHorizontalFlip

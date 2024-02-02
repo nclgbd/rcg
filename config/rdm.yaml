@@ -3,26 +3,32 @@
 defaults:
   - _self_
   - datasets: chest-xray14-dataset
+  - mlflow: rcg-logger
   # overrides:
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
 
 job:
   mode: diffusion
+  use_azureml: true
   use_transforms: true
 
 # seed for reproducibility
 seed: 42
 # Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus
-batch_size: 64
+batch_size: ${datasets.dataloader.batch_size}
 # Number of epochs to train
 epochs: 400
+# Number of images to generate
+num_images: 3500
 # Accumulate gradient iterations (for increasing the effective batch size under memory constraints)
 accum_iter: 1
 # Images input size
 input_size: 256
 # Config file
 config: "/home/nicoleg/workspaces/rcg/config/rdm/mocov3vitb_simplemlp_l12_w1536_classcond.yaml"
+#
+class_cond: true
 #
 weight_decay: 0.05
 # Learning rate
@@ -38,9 +44,9 @@ warmup_epochs: 0
 # output_dir
 output_dir: outputs
 # log directory
-log_dir: logs
+log_dir: outputs/logs
 # device
-device: 0
+device: 1
 # Resume from checkpoint
 resume: ""
 # The starting epoch
@@ -61,7 +67,7 @@ dist_on_itp: false
 dist_url: "env://"
 
 date: ${now:%Y-%m-%d}
-postfix: "DIFFUSION"
+postfix: ""
 timestamp: ${now:%H-%M-%S}
 
 hydra:

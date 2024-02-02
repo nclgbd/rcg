@@ -17,4 +17,5 @@ imagenet-val
 
 # nclgbd
 config.json
+mlruns/
 outputs/

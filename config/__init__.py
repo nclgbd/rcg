@@ -1,14 +1,25 @@
 # Extension from rtk module
 
-from dataclasses import dataclass
+from omegaconf import DictConfig
+from dataclasses import dataclass, field
 
 from rtk.config import DatasetConfiguration
 
 
 @dataclass
 class RCGConfiguration:
+    # rtk configurations
     datasets: DatasetConfiguration
+    job: DictConfig = field(default_factory=dict)
+    mlflow: DictConfig = field(default_factory=dict)
+    date: str = ""
+    timestamp: str = ""
+    postfix: str = ""
+
+    # additional params
     seed: int = 0
+    class_cond: bool = True
+    num_images: int = 3500
     batch_size: int = 64
     epochs: int = 400
     accum_iter: int = 1
@@ -27,7 +38,7 @@ class RCGConfiguration:
     start_epoch: int = 0
     num_workers: int = 24
     pin_mem: bool = True
-    # Distributed settings
+    # distributed settings
     distributed: bool = False
     world_size: int = 1
     local_rank: int = -1

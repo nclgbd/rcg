@@ -13,10 +13,6 @@
                 "rdm",
                 "--config-dir",
                 "/home/nicoleg/workspaces/rcg/config/",
-                // "job.dry_run=true",
-                // "job.epoch_length=8",
-                // "job.max_epochs=2",
-                // "+mlflow.experiment_name=tests",
             ]
         }
     ],

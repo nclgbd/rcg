@@ -11,6 +11,11 @@ import torch.distributed as dist
 # from torch._six import inf
 import copy
 
+# rtk
+from rtk.utils import get_logger
+
+logger = get_logger(__name__)
+
 
 class SmoothedValue(object):
     """Track a series of values and provide access to smoothed values over a
@@ -140,7 +145,7 @@ class MetricLogger(object):
                 eta_seconds = iter_time.global_avg * (len(iterable) - i)
                 eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
                 if torch.cuda.is_available():
-                    print(
+                    logger.info(
                         log_msg.format(
                             i,
                             len(iterable),
@@ -152,7 +157,7 @@ class MetricLogger(object):
                         )
                     )
                 else:
-                    print(
+                    logger.info(
                         log_msg.format(
                             i,
                             len(iterable),
@@ -166,7 +171,7 @@ class MetricLogger(object):
             end = time.time()
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-        print(
+        logger.info(
             "{} Total time: {} ({:.4f} s / it)".format(
                 header, total_time_str, total_time / len(iterable)
             )
@@ -254,7 +259,7 @@ def init_distributed_mode(args):
         args.rank = int(os.environ["SLURM_PROCID"])
         args.gpu = args.rank % torch.cuda.device_count()
     else:
-        print("Not using distributed mode")
+        logger.info("Not using distributed mode")
         setup_for_distributed(is_master=True)  # hack
         args.distributed = False
         return
@@ -263,7 +268,7 @@ def init_distributed_mode(args):
 
     torch.cuda.set_device(args.gpu)
     args.dist_backend = "nccl"
-    print(
+    logger.info(
         "| distributed init (rank {}): {}, gpu {}".format(
             args.rank, args.dist_url, args.gpu
         ),
@@ -420,7 +425,7 @@ def load_model(args, model_without_ddp, optimizer, loss_scaler):
     if args.resume:
         checkpoint = torch.load(resume_path, map_location="cpu")
         model_without_ddp.load_state_dict(checkpoint["model"])
-        print("Resume checkpoint %s" % resume_path)
+        logger.info("Resume checkpoint %s" % resume_path)
         if (
             "optimizer" in checkpoint
             and "epoch" in checkpoint
@@ -430,7 +435,7 @@ def load_model(args, model_without_ddp, optimizer, loss_scaler):
             args.start_epoch = checkpoint["epoch"] + 1
             if "scaler" in checkpoint:
                 loss_scaler.load_state_dict(checkpoint["scaler"])
-            print("With optim & sched!")
+            logger.info("With optim & sched!")
 
 
 def all_reduce_mean(x):

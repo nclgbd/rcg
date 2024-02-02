@@ -12,11 +12,17 @@ from pathlib import Path
 import torch
 import torch.backends.cudnn as cudnn
 import torchvision.datasets as datasets
-from torch.utils.tensorboard import SummaryWriter
 
+# from torch.utils.tensorboard import SummaryWriter
+
+import mlflow
+
+# :huggingface: timm
 import timm
 
-assert timm.__version__ == "0.3.2"  # version check
+# azureml
+from azureml.core import Experiment
+from azureml.tensorboard import Tensorboard
 
 import util.misc as misc
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
@@ -27,110 +33,44 @@ from config import RCGConfiguration
 
 # rtk
 from rtk._datasets import cxr14
+from rtk.config import DatasetConfiguration
+from rtk.mlflow import prepare_mlflow
 from rtk.utils import get_logger, hydra_instantiate, _strip_target
 
 logger = get_logger("main_rdm")
 
-# def get_args_parser():
-#     parser = argparse.ArgumentParser("RDM training", add_help=False)
-#     parser.add_argument(
-#         "--batch_size",
-#         default=64,
-#         type=int,
-#         help="Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus",
-#     )
-#     parser.add_argument("--epochs", default=400, type=int)
-#     parser.add_argument(
-#         "--accum_iter",
-#         default=1,
-#         type=int,
-#         help="Accumulate gradient iterations (for increasing the effective batch size under memory constraints)",
-#     )
 
-#     # config
-#     parser.add_argument("--input_size", default=256, type=int, help="images input size")
+def get_params(cfg: RCGConfiguration, **kwargs):
+    dataset_cfg: DatasetConfiguration = kwargs.get("dataset_cfg", cfg.datasets)
+    preprocessing_cfg = dataset_cfg.preprocessing
+    params = dict()
 
-#     parser.add_argument("--config", type=str, help="config file")
+    # NOTE: dataset parameters
+    def __collect_dataset_params():
+        params["dataset_name"] = dataset_cfg.name
+        params.update(preprocessing_cfg)
+        if params["use_sampling"] == False:
+            del params["sampling_method"]
 
-#     # Optimizer parameters
-#     parser.add_argument(
-#         "--weight_decay", type=float, default=0.05, help="weight decay (default: 0.05)"
-#     )
+    __collect_dataset_params()
 
-#     parser.add_argument(
-#         "--lr",
-#         type=float,
-#         default=None,
-#         metavar="LR",
-#         help="learning rate (absolute lr)",
-#     )
-#     parser.add_argument(
-#         "--blr",
-#         type=float,
-#         default=1e-3,
-#         metavar="LR",
-#         help="base learning rate: absolute_lr = base_lr * total_batch_size",
-#     )
-#     parser.add_argument(
-#         "--min_lr",
-#         type=float,
-#         default=0.0,
-#         metavar="LR",
-#         help="lower lr bound for cyclic schedulers that hit 0",
-#     )
-#     parser.add_argument(
-#         "--cosine_lr", action="store_true", help="Use cosine lr scheduling."
-#     )
-#     parser.add_argument("--warmup_epochs", default=0, type=int)
+    # in case '_target_' somehow wasn't found
+    try:
+        del params["_target_"]
+    except KeyError:
+        pass
 
-#     # Dataset parameters
-#     parser.add_argument(
-#         "--data_path",
-#         default="/home/nicoleg/workspaces/dissertation/.data/CHEST_XRAY_14/",
-#         type=str,
-#         help="dataset path",
-#     )
+    tags = cfg.job.get("tags", {})
+    logger.info("Logged parameters:\n{}".format(OmegaConf.to_yaml(params)))
+    mlflow.log_params(params)
 
-#     parser.add_argument(
-#         "--output_dir",
-#         default="./outputs",
-#         help="path where to save, empty for no saving",
-#     )
-#     parser.add_argument(
-#         "--log_dir", default="./outputs/logs", help="path where to tensorboard log"
-#     )
-#     parser.add_argument(
-#         "--device", default=0, help="device to use for training / testing"
-#     )
-#     parser.add_argument("--seed", default=0, type=int)
-#     parser.add_argument("--resume", default="", help="resume from checkpoint")
+    if any(tags):
+        mlflow.set_tags(tags)
 
-#     parser.add_argument(
-#         "--start_epoch", default=0, type=int, metavar="N", help="start epoch"
-#     )
-#     parser.add_argument("--num_workers", default=10, type=int)
-#     parser.add_argument(
-#         "--pin_mem",
-#         action="store_true",
-#         help="Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.",
-#     )
-#     parser.add_argument("--no_pin_mem", action="store_false", dest="pin_mem")
-#     parser.set_defaults(pin_mem=True)
-
-#     # distributed training parameters
-#     parser.add_argument(
-#         "--world_size", default=1, type=int, help="number of distributed processes"
-#     )
-#     parser.add_argument("--local_rank", default=-1, type=int)
-#     parser.add_argument("--dist_on_itp", action="store_true")
-#     parser.add_argument(
-#         "--dist_url", default="env://", help="url used to set up distributed training"
-#     )
-
-#     return parser
+    return params
 
 
-@hydra.main(config_path="config", config_name="rdm")
+@hydra.main(config_path="config", config_name="rdm", version_base=None)
 def main(args: RCGConfiguration):
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
@@ -151,25 +91,12 @@ def main(args: RCGConfiguration):
     num_tasks = misc.get_world_size()
     global_rank = misc.get_rank()
 
-    if global_rank == 0 and args.log_dir is not None:
-        os.makedirs(args.log_dir, exist_ok=True)
-        log_writer = SummaryWriter(log_dir=args.log_dir)
-    else:
-        log_writer = None
+    # if global_rank == 0 and args.log_dir is not None:
+    #     os.makedirs(args.log_dir, exist_ok=True)
+    #     log_writer = SummaryWriter(log_dir=args.log_dir)
+    # else:
+    #     log_writer = None
 
-    # simple augmentation
-    # transform_train = transforms.Compose(
-    #     [
-    #         transforms.Resize(256, interpolation=3),
-    #         transforms.RandomCrop(256),
-    #         transforms.RandomHorizontalFlip(),
-    #         transforms.ToTensor(),
-    #     ]
-    # )
-
-    # dataset_train = datasets.ImageFolder(
-    #     os.path.join(args.data_path, "train"), transform=transform_train
-    # )
     datasets = cxr14.load_cxr14_dataset(cfg=args)
     dataset_train = datasets[0]
 
@@ -178,25 +105,30 @@ def main(args: RCGConfiguration):
             dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
         )
         logger.info("Sampler_train = %s" % str(sampler_train))
-    else:
-        sampler_train = torch.utils.data.RandomSampler(dataset_train)
+    # else:
+    #     sampler_train = torch.utils.data.RandomSampler(dataset_train)
 
-    data_loader_train = torch.utils.data.DataLoader(
-        dataset_train,
-        sampler=sampler_train,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        pin_memory=args.pin_mem,
-        drop_last=True,
+    # data_loader_train = torch.utils.data.DataLoader(
+    #     dataset_train,
+    #     sampler=sampler_train,
+    #     batch_size=args.batch_size,
+    #     num_workers=args.num_workers,
+    #     pin_memory=args.pin_mem,
+    #     drop_last=True,
+    # )
+    data_loader_train = hydra_instantiate(
+        cfg=args.datasets.dataloader,
+        dataset=dataset_train,
+        pin_memory=torch.cuda.is_available() if torch.cuda.is_available() else False,
+        shuffle=True,
     )
-    # data_loader_train = dataloaders[0]
 
     # load model config
     config = OmegaConf.load(args.config)
     model = instantiate_from_config(config.model)
 
     # set arguments generation params
-    args.class_cond = config.model.params.get("class_cond", False)
+    args.class_cond = config.model.params.get("class_cond", args.class_cond)
 
     model.to(device)
 
@@ -224,9 +156,10 @@ def main(args: RCGConfiguration):
     params = list(model_without_ddp.model.parameters())
     params = params + list(model_without_ddp.cond_stage_model.parameters())
     n_params = sum(p.numel() for p in model_without_ddp.parameters() if p.requires_grad)
-    logger.info("Number of trainable parameters: {}M".format(n_params / 1e6))
+    logger.info("Number of trainable parameters: {} M".format(n_params / 1e6))
     if global_rank == 0:
-        log_writer.add_scalar("num_params", n_params / 1e6, 0)
+        mlflow.log_param("num_params", n_params / 1e6)
+        # log_writer.add_scalar("num_params", n_params / 1e6, 0)
 
     optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
     logger.info(optimizer)
@@ -240,23 +173,40 @@ def main(args: RCGConfiguration):
     )
 
     logger.info(f"Start training for {args.epochs} epochs")
-    start_time = time.time()
-    for epoch in range(args.start_epoch, args.epochs):
-        if args.distributed:
-            data_loader_train.sampler.set_epoch(epoch)
 
-        train_stats = train_one_epoch(
-            model,
-            data_loader_train,
-            optimizer,
-            device,
-            epoch,
-            loss_scaler,
-            log_writer=log_writer,
-            args=args,
-        )
-        if args.output_dir and (epoch % 25 == 0 or epoch + 1 == args.epochs):
-            misc.save_model(
+    if mlflow.active_run() is not None:
+        mlflow.end_run()
+
+    start_run_kwargs: dict = prepare_mlflow(args)
+    start_time = time.time()
+
+    with mlflow.start_run(**start_run_kwargs):
+        params = get_params(args)
+        for epoch in range(args.start_epoch, args.epochs):
+            if args.distributed:
+                data_loader_train.sampler.set_epoch(epoch)
+
+            train_stats = train_one_epoch(
+                model,
+                data_loader_train,
+                optimizer,
+                device,
+                epoch,
+                loss_scaler,
+                # log_writer=log_writer,
+                args=args,
+            )
+            if args.output_dir and (epoch % 25 == 0 or epoch + 1 == args.epochs):
+                misc.save_model(
+                    args=args,
+                    model=model,
+                    model_without_ddp=model_without_ddp,
+                    optimizer=optimizer,
+                    loss_scaler=loss_scaler,
+                    epoch=epoch,
+                )
+
+            misc.save_model_last(
                 args=args,
                 model=model,
                 model_without_ddp=model_without_ddp,
@@ -264,31 +214,26 @@ def main(args: RCGConfiguration):
                 loss_scaler=loss_scaler,
                 epoch=epoch,
             )
+            log_stats = {
+                **{f"train_{k}": v for k, v in train_stats.items()},
+                "epoch": epoch,
+            }
+            mlflow.log_metrics(log_stats)
 
-        misc.save_model_last(
-            args=args,
-            model=model,
-            model_without_ddp=model_without_ddp,
-            optimizer=optimizer,
-            loss_scaler=loss_scaler,
-            epoch=epoch,
-        )
-        log_stats = {
-            **{f"train_{k}": v for k, v in train_stats.items()},
-            "epoch": epoch,
-        }
+            if args.output_dir and misc.is_main_process():
+                # if log_writer is not None:
+                #     log_writer.flush()
+                with open(
+                    os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8"
+                ) as f:
+                    f.write(json.dumps(log_stats) + "\n")
 
-        if args.output_dir and misc.is_main_process():
-            if log_writer is not None:
-                log_writer.flush()
-            with open(
-                os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8"
-            ) as f:
-                f.write(json.dumps(log_stats) + "\n")
+        mlflow.log_artifacts(args.output_dir)
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info("Training time {}".format(total_time_str))
+    mlflow.end_run()
 
 
 if __name__ == "__main__":

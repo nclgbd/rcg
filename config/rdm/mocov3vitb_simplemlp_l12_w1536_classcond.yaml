@@ -35,5 +35,5 @@ model:
       target: rdm.modules.encoders.modules.ClassEmbedder
       params:
         embed_dim: 512
-        n_classes: 1000
-        key: class_label
+        n_classes: 4
+        key: class_labels
