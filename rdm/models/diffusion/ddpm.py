@@ -1158,7 +1158,7 @@ class RDM(DDPM):
     @torch.no_grad()
     def sample(
         self,
-        cond,
+        cond=None,
         batch_size=16,
         return_intermediates=False,
         x_T=None,

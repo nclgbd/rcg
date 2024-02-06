@@ -8,10 +8,14 @@ defaults:
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
 
-job:
-  mode: diffusion
-  use_azureml: true
-  use_transforms: true
+# Base configuration parameters
+date: ${now:%Y-%m-%d}
+device: 2
+mode: diffusion-evaluate
+postfix: ""
+random_state: 42
+timestamp: ${now:%H-%M-%S}
+use_transforms: true
 
 # seed for reproducibility
 seed: 42
@@ -27,6 +31,10 @@ accum_iter: 1
 input_size: 256
 # Config file
 config: "/home/nicoleg/workspaces/rcg/config/rdm/mocov3vitb_simplemlp_l12_w1536_classcond.yaml"
+#
+pretrained_rdm_cfg: "/home/nicoleg/workspaces/rcg/config/rdm/mocov3vitb_simplemlp_l12_w1536_classcond.yaml"
+#
+pretrained_rdm_ckpt: "/home/nicoleg/workspaces/rcg/outputs/rdm/2024-02-01/16-00-35/outputs/checkpoint-last.pth"
 #
 class_cond: true
 #
@@ -45,8 +53,6 @@ warmup_epochs: 0
 output_dir: outputs
 # log directory
 log_dir: outputs/logs
-# device
-device: 1
 # Resume from checkpoint
 resume: ""
 # The starting epoch
@@ -66,16 +72,13 @@ dist_on_itp: false
 # url used to set up distributed training
 dist_url: "env://"
 
-date: ${now:%Y-%m-%d}
-postfix: ""
-timestamp: ${now:%H-%M-%S}
-
 hydra:
   job:
     chdir: true
   searchpath:
     - file:///home/nicoleg/workspaces/ResearchToolKit/configs
     - file:///home/nicoleg/workspaces/dissertation/configs
+    - file:///home/nicoleg/workspaces/rcg/config
   sweep:
     dir: outputs/${hydra.job.config_name}/${date}/${timestamp}
     subdir: ${hydra.job.override_dirname}
