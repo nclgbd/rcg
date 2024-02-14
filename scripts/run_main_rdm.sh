@@ -9,5 +9,6 @@ log_dir="outputs/$config_name/logs"
 mkdir -p $log_dir
 
 nohup python main_rdm.py --config-dir=$(pwd)/config/ --config-name=$config_name \
-    device=1 \
-    >"$log_dir/$log_filename.log" &
+    device=0 \
+    datasets/encoding=class-conditioned-encoding datasets/transforms=rdm-transforms datasets/preprocessing=diffusion-preprocessing \
+    datasets.target=class_conditioned_labels datasets.dim=256 datasets.preprocessing.positive_class=null >"$log_dir/$log_filename.log" &

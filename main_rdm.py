@@ -3,6 +3,7 @@
 import datetime
 import hydra
 import json
+import mlflow
 import numpy as np
 import os
 import time
@@ -11,29 +12,17 @@ from pathlib import Path
 
 import torch
 import torch.backends.cudnn as cudnn
-import torchvision.datasets as datasets
 
-# from torch.utils.tensorboard import SummaryWriter
-
-import mlflow
-
-# :huggingface: timm
-import timm
-
-# azureml
-from azureml.core import Experiment
-from azureml.tensorboard import Tensorboard
-
+# rcg
 import util.misc as misc
-from util.misc import NativeScalerWithGradNormCount as NativeScaler
-
+from config import RCGConfiguration
 from engine_rdm import train_one_epoch
 from rdm.util import instantiate_from_config
-from config import RCGConfiguration
+from util.misc import NativeScalerWithGradNormCount as NativeScaler
 
 # rtk
-from rtk._datasets import cxr14
 from rtk.config import DatasetConfiguration
+from rtk.datasets import instantiate_image_dataset
 from rtk.mlflow import prepare_mlflow
 from rtk.utils import get_logger, hydra_instantiate, _strip_target
 
@@ -43,7 +32,12 @@ logger = get_logger("main_rdm")
 def get_params(cfg: RCGConfiguration, **kwargs):
     dataset_cfg: DatasetConfiguration = kwargs.get("dataset_cfg", cfg.datasets)
     preprocessing_cfg = dataset_cfg.preprocessing
-    params = dict()
+    # params = dict()
+
+    # NOTE: general parameters
+    params = dict(cfg)
+    del params["datasets"]
+    del params["mlflow"]
 
     # NOTE: dataset parameters
     def __collect_dataset_params():
@@ -54,18 +48,13 @@ def get_params(cfg: RCGConfiguration, **kwargs):
 
     __collect_dataset_params()
 
-    # in case '_target_' somehow wasn't found
     try:
         del params["_target_"]
     except KeyError:
         pass
 
-    tags = cfg.job.get("tags", {})
     logger.info("Logged parameters:\n{}".format(OmegaConf.to_yaml(params)))
     mlflow.log_params(params)
-
-    if any(tags):
-        mlflow.set_tags(tags)
 
     return params
 
@@ -91,13 +80,7 @@ def main(args: RCGConfiguration):
     num_tasks = misc.get_world_size()
     global_rank = misc.get_rank()
 
-    # if global_rank == 0 and args.log_dir is not None:
-    #     os.makedirs(args.log_dir, exist_ok=True)
-    #     log_writer = SummaryWriter(log_dir=args.log_dir)
-    # else:
-    #     log_writer = None
-
-    datasets = cxr14.load_cxr14_dataset(cfg=args)
+    datasets = instantiate_image_dataset(cfg=args)
     dataset_train = datasets[0]
 
     if args.distributed:
@@ -105,17 +88,6 @@ def main(args: RCGConfiguration):
             dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
         )
         logger.info("Sampler_train = %s" % str(sampler_train))
-    # else:
-    #     sampler_train = torch.utils.data.RandomSampler(dataset_train)
-
-    # data_loader_train = torch.utils.data.DataLoader(
-    #     dataset_train,
-    #     sampler=sampler_train,
-    #     batch_size=args.batch_size,
-    #     num_workers=args.num_workers,
-    #     pin_memory=args.pin_mem,
-    #     drop_last=True,
-    # )
     data_loader_train = hydra_instantiate(
         cfg=args.datasets.dataloader,
         dataset=dataset_train,
@@ -159,7 +131,6 @@ def main(args: RCGConfiguration):
     logger.info("Number of trainable parameters: {} M".format(n_params / 1e6))
     if global_rank == 0:
         mlflow.log_param("num_params", n_params / 1e6)
-        # log_writer.add_scalar("num_params", n_params / 1e6, 0)
 
     optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
     logger.info(optimizer)
@@ -193,7 +164,6 @@ def main(args: RCGConfiguration):
                 device,
                 epoch,
                 loss_scaler,
-                # log_writer=log_writer,
                 args=args,
             )
             if args.output_dir and (epoch % 25 == 0 or epoch + 1 == args.epochs):
@@ -220,15 +190,7 @@ def main(args: RCGConfiguration):
             }
             mlflow.log_metrics(log_stats)
 
-            if args.output_dir and misc.is_main_process():
-                # if log_writer is not None:
-                #     log_writer.flush()
-                with open(
-                    os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8"
-                ) as f:
-                    f.write(json.dumps(log_stats) + "\n")
-
-        mlflow.log_artifacts(args.output_dir)
+        mlflow.log_artifacts(os.getcwd())
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -237,6 +199,4 @@ def main(args: RCGConfiguration):
 
 
 if __name__ == "__main__":
-    # args = get_args_parser()
-    # args = args.parse_args()
     main()

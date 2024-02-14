@@ -1,5 +1,6 @@
 # * python main_rdm.py config-dir=$(pwd)/config/ config-name=rdm
 
+experiment_name: rcg-experiments
 defaults:
   - _self_
   - datasets: chest-xray14-dataset
@@ -10,19 +11,23 @@ defaults:
 
 # Base configuration parameters
 date: ${now:%Y-%m-%d}
-device: 2
-mode: diffusion-evaluate
+device: 0
+mode: diffusion
 postfix: ""
 random_state: 42
 timestamp: ${now:%H-%M-%S}
 use_transforms: true
 
+# Resume from checkpoint
+resume: ""
+#
+evaluate: false
 # seed for reproducibility
 seed: 42
 # Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus
 batch_size: ${datasets.dataloader.batch_size}
 # Number of epochs to train
-epochs: 400
+epochs: 100
 # Number of images to generate
 num_images: 3500
 # Accumulate gradient iterations (for increasing the effective batch size under memory constraints)
@@ -32,9 +37,9 @@ input_size: 256
 # Config file
 config: "/home/nicoleg/workspaces/rcg/config/rdm/mocov3vitb_simplemlp_l12_w1536_classcond.yaml"
 #
-pretrained_rdm_cfg: "/home/nicoleg/workspaces/rcg/config/rdm/mocov3vitb_simplemlp_l12_w1536_classcond.yaml"
+# pretrained_rdm_cfg: "/home/nicoleg/workspaces/rcg/config/rdm/mocov3vitb_simplemlp_l12_w1536_classcond.yaml"
 #
-pretrained_rdm_ckpt: "/home/nicoleg/workspaces/rcg/outputs/rdm/2024-02-01/16-00-35/outputs/checkpoint-last.pth"
+# pretrained_rdm_ckpt: "/home/nicoleg/workspaces/rcg/outputs/rdm/2024-02-01/16-00-35/outputs/checkpoint-last.pth"
 #
 class_cond: true
 #
@@ -42,7 +47,7 @@ weight_decay: 0.05
 # Learning rate
 lr: null
 # blr
-blr: 0.0001
+blr: 0.00001
 # min_lr
 min_lr: 0.0
 # cosine_lr
@@ -52,9 +57,7 @@ warmup_epochs: 0
 # output_dir
 output_dir: outputs
 # log directory
-log_dir: outputs/logs
-# Resume from checkpoint
-resume: ""
+log_dir: logs
 # The starting epoch
 start_epoch: 0
 # The number of workers for the dataloader

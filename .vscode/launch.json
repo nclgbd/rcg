@@ -3,7 +3,7 @@
     "configurations": [
         {
             "name": "Debug main_rdm.py: rdm conf",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "/home/nicoleg/workspaces/rcg/main_rdm.py",
             "console": "integratedTerminal",
@@ -13,6 +13,14 @@
                 "rdm",
                 "--config-dir",
                 "/home/nicoleg/workspaces/rcg/config/",
+                "epochs=1",
+                "experiment_name=tests",
+                "datasets.dim=256",
+                "datasets.preprocessing.positive_class=null",
+                "datasets.target=class_conditioned_labels",
+                "datasets/encoding=class-conditioned-encoding",
+                "datasets/preprocessing=diffusion-preprocessing",
+                "datasets/transforms=rdm-transforms",
             ]
         }
     ],

@@ -19,7 +19,7 @@ class RCGConfiguration(BaseConfiguration):
     config: str = ""
     pretrained_rdm_cfg: str = ""
     pretrained_rdm_ckpt: str = ""
-    log_dir: str = "outputs/logs/"
+    log_dir: str = "logs/"
     weight_decay: float = 0.05
     lr: int = None
     blr: float = 1e-3
@@ -32,6 +32,8 @@ class RCGConfiguration(BaseConfiguration):
     start_epoch: int = 0
     num_workers: int = 24
     pin_mem: bool = True
+    evaluate: bool = False
+    use_ddim: bool = False
     # distributed settings
     distributed: bool = False
     world_size: int = 1

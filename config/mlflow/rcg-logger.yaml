@@ -1,6 +1,6 @@
 # mlflow: local
 
-experiment_name: rcg-experiments
+experiment_name: ${experiment_name}
 start_run:
   experiment_id:
   run_name: rdm-${now:%Y-%m-%d-%H-%M-%S}
