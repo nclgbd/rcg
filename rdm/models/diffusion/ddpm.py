@@ -385,7 +385,7 @@ class DDPM(nn.Module):
     def forward(self, x, *args, **kwargs):
         # b, c, h, w, device, img_size, = *x.shape, x.device, self.image_size
         # assert h == img_size and w == img_size, f'height and width of image must be {img_size}'
-        t = torch.randint(0, self.num_timesteps, (x.shape[0],)).cuda().long()
+        t = torch.randint(0, self.num_timesteps, (x.shape[0],)).long()
         return self.p_losses(x, t, *args, **kwargs)
 
     def get_input(self, batch, k):
@@ -1026,9 +1026,11 @@ class RDM(DDPM):
         if cond is not None:
             if isinstance(cond, dict):
                 cond = {
-                    key: cond[key][:batch_size]
-                    if not isinstance(cond[key], list)
-                    else list(map(lambda x: x[:batch_size], cond[key]))
+                    key: (
+                        cond[key][:batch_size]
+                        if not isinstance(cond[key], list)
+                        else list(map(lambda x: x[:batch_size], cond[key]))
+                    )
                     for key in cond
                 }
             else:
@@ -1175,9 +1177,11 @@ class RDM(DDPM):
         if cond is not None:
             if isinstance(cond, dict):
                 cond = {
-                    key: cond[key][:batch_size]
-                    if not isinstance(cond[key], list)
-                    else list(map(lambda x: x[:batch_size], cond[key]))
+                    key: (
+                        cond[key][:batch_size]
+                        if not isinstance(cond[key], list)
+                        else list(map(lambda x: x[:batch_size], cond[key]))
+                    )
                     for key in cond
                 }
             else:

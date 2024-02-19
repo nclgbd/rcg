@@ -18,6 +18,7 @@
                 "datasets.dim=256",
                 "datasets.preprocessing.positive_class=null",
                 "datasets.target=class_conditioned_labels",
+                "datasets.dataloader.batch_size=512",
                 "datasets/encoding=class-conditioned-encoding",
                 "datasets/preprocessing=diffusion-preprocessing",
                 "datasets/transforms=rdm-transforms",

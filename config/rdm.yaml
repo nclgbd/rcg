@@ -6,6 +6,11 @@ defaults:
   - datasets: chest-xray14-dataset
   - mlflow: rcg-logger
   # overrides:
+  # datasets
+  - override datasets/encoding: class-conditioned-encoding
+  - override datasets/preprocessing: diffusion-preprocessing
+  # - override datasets/text_prompts: class-conditioned-prompts
+  - override datasets/transforms: rdm-transforms
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
 
@@ -47,7 +52,7 @@ weight_decay: 0.05
 # Learning rate
 lr: null
 # blr
-blr: 0.00001
+blr: 0.0001
 # min_lr
 min_lr: 0.0
 # cosine_lr
@@ -61,7 +66,7 @@ log_dir: logs
 # The starting epoch
 start_epoch: 0
 # The number of workers for the dataloader
-num_workers: 24
+num_workers: ${datasets.dataloader.num_workers}
 # Whether to use pin_memory
 pin_mem: true
 # Distributed training
