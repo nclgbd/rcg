@@ -30,7 +30,7 @@ def count_params(model, verbose=False):
 
 def instantiate_from_config(config):
     if not "target" in config:
-        if config == '__is_first_stage__':
+        if config == "__is_first_stage__":
             return None
         elif config == "__is_unconditional__":
             return None
@@ -38,10 +38,10 @@ def instantiate_from_config(config):
     return get_obj_from_str(config["target"])(**config.get("params", dict()))
 
 
-def load_model_from_config(config, sd):
+def load_model_from_config(config, sd, device: str = "cuda"):
     model = instantiate_from_config(config)
     model.load_state_dict(sd, strict=False)
-    model.cuda()
+    model.cuda(device)
     model.eval()
     return model
 
@@ -54,8 +54,7 @@ def load_model(config, ckpt):
             pl_sd["state_dict"] = pl_sd["model"]
     else:
         pl_sd = {"state_dict": None}
-    model = load_model_from_config(config.model,
-                                   pl_sd["state_dict"])
+    model = load_model_from_config(config.model, pl_sd["state_dict"])
 
     return model
 
@@ -81,7 +80,12 @@ def _do_parallel_data_prefetch(func, Q, data, idx, idx_to_fn=False):
 
 
 def parallel_data_prefetch(
-        func: callable, data, n_proc, target_data_type="ndarray", cpu_intensive=True, use_worker_id=False
+    func: callable,
+    data,
+    n_proc,
+    target_data_type="ndarray",
+    cpu_intensive=True,
+    use_worker_id=False,
 ):
     # if target_data_type not in ["ndarray", "list"]:
     #     raise ValueError(
@@ -125,7 +129,7 @@ def parallel_data_prefetch(
         arguments = [
             [func, Q, part, i, use_worker_id]
             for i, part in enumerate(
-                [data[i: i + step] for i in range(0, len(data), step)]
+                [data[i : i + step] for i in range(0, len(data), step)]
             )
         ]
     processes = []
@@ -163,13 +167,13 @@ def parallel_data_prefetch(
             p.join()
         print(f"Prefetching complete. [{time.time() - start} sec.]")
 
-    if target_data_type == 'ndarray':
+    if target_data_type == "ndarray":
         if not isinstance(gather_res[0], np.ndarray):
             return np.concatenate([np.asarray(r) for r in gather_res], axis=0)
 
         # order outputs
         return np.concatenate(gather_res, axis=0)
-    elif target_data_type == 'list':
+    elif target_data_type == "list":
         out = []
         for r in gather_res:
             out.extend(r)
